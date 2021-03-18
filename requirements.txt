@@ -1,0 +1,7 @@
+conda install -c anaconda ipykernel
+conda install -c anaconda psycopg2
+conda install -c conda-forge dash
+conda install -c anaconda pandas
+pip install dash-datetimepicker
+conda install -c conda-forge dash-bootstrap-components
+conda install -c anaconda scikit-image
