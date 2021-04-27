@@ -19,7 +19,7 @@ with open(args.jsonfile) as f:
 builtins.conn = psycopg2.connect(**db_auth)
 
 # Local files
-from crotalus.web.app import app
+from crotalus.web.apps import app
 from crotalus.web.layouts import layout
 import crotalus.web.callbacks
 

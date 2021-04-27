@@ -5,11 +5,11 @@ from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 
 # Local files
-from crotalus.web.app import app
+from crotalus.web.apps import app
 from crotalus.web.queries import (
-    get_stations_options, get_channel_options, query
+    get_stations_options, get_channel_options, query, get_client, get_network
 )
-from crotalus.web.plot import plot
+from crotalus.web.plots import plot
 
 
 @app.callback(
@@ -61,3 +61,4 @@ def update_output_div(n_clicks, channel_id, measurements, startDate, endDate):
     else:
         df = query(channel_id, measurements, startDate, endDate)
         return None, plot(measurements, df)
+

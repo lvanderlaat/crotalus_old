@@ -6,7 +6,7 @@ import dash_html_components as html
 from dash_datetimepicker import DashDatetimepicker
 
 # Local files
-from crotalus.web.app import app
+from crotalus.web.apps import app
 from crotalus.web.queries import get_volcanoes_options, get_measurments_options
 
 
@@ -53,6 +53,5 @@ layout = html.Div(
         ),
 
         dcc.Graph(id='graph')
-        # html.Div(id='print')
     ]
 )

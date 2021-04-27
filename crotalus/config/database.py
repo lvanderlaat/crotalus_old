@@ -8,13 +8,8 @@ import pandas as pd
 # Local files
 
 
-def get_configuration(measurement, conn):
-    """ Get configuration for measurement
-
-    Options for measurement are:
-        * RSEM
-        * SSAM
-        * DSAR
+def get_configuration(feature, conn):
+    """ Get configuration for feature
 
     Parameters
     ----------
@@ -29,8 +24,8 @@ def get_configuration(measurement, conn):
         Configuration settings
     """
     df = pd.read_sql_query(
-        f"""SELECT * FROM configuration
-        WHERE measurement='{measurement}';""",
+        f"""SELECT * FROM feature
+        WHERE feature_name='{feature}';""",
         conn)
     c = df.iloc[0].settings
     return namedtuple('c', c.keys())(**c)
