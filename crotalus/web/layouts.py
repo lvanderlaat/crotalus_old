@@ -1,4 +1,5 @@
 # Python Standard Library
+from datetime import datetime, timedelta
 
 # Other dependencies
 import dash_core_components as dcc
@@ -40,9 +41,8 @@ layout = html.Div(
 
         DashDatetimepicker(
             id='datetime-picker',
-            # TODO use today
-            startDate='2021-01-01T20:00:00.000Z',
-            endDate='2021-01-01T20:10:00.000Z'
+            startDate=str(datetime.utcnow() - timedelta(days=7)),
+            endDate=str(datetime.utcnow() + timedelta(days=1))
         ),
 
         html.Button('Submit', id='submit-button'),

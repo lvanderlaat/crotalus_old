@@ -1,0 +1,205 @@
+#!/usr/bin/env python
+
+# Python Standard Library
+import argparse
+import json
+import logging
+from threading import Thread
+import time
+
+# Other dependencies
+import numpy as np
+from obspy import UTCDateTime, Stream
+from obspy.clients.fdsn import Client
+import psycopg2
+from scipy.fft import rfft
+
+# Local files
+from crotalus.config.database import (
+    continuous_extraction_channels, query_general_conf, query_feature_conf
+)
+from crotalus.dsp.pre_process import pre_process
+from crotalus.dsp.features import (
+    rsem, kurtosis, dsar,
+    freq_central, freq_centroid, freq_domi, freq_ratio,
+    tonality
+)
+from crotalus.dsp.spectrum import get_8ve_bands, downsample_spectrogram
+
+
+NANO = 1e9
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('jsonfile', help='JSON file with database information')
+    return parser.parse_args()
+
+
+def connect_waveserver(ip, port):
+    url = f'http://{ip}:{port}'
+    try:
+        logging.info(f'Connecting to {url}...')
+        client = Client(url)
+        logging.info('Succesfully connected to FDSN client.')
+        return client
+    except Exception as e:
+        print(e)
+
+
+def get_waveforms(client, channels, starttime, endtime):
+    def _get_waveform(network, station, channel, starttime, endtime):
+        nonlocal st
+        st += client.get_waveforms(
+            network, station, '*', channel,
+            starttime, endtime, attach_response=True
+        )
+
+    threads, st = [], Stream()
+    for i, row in channels.iterrows():
+        thread = Thread(
+            target=_get_waveform,
+            args=(
+                row.network,
+                row.station,
+                row.channel,
+                starttime,
+                endtime
+            )
+        )
+        threads.append(thread)
+        thread.start()
+
+    for thread in threads:
+        thread.join()
+
+    st.merge()
+    st.remove_response()
+    for tr in st:
+        tr.data *= NANO
+    return st
+
+
+def process(tr, conn, cg, cf, ssam_bins, midtime, channel_id):
+    # Time series features
+    _rsem     = rsem(tr.data)
+    _kurtosis = kurtosis(tr.data)
+
+    # DSAR
+    _dsar = dsar(
+        tr, cf.dsar.freqmin, cf.dsar.freqmax, cf.dsar.order,
+        tr.stats.npts/tr.stats.sampling_rate, 0
+    )[1][0]
+
+    # Spectral features
+    f = np.fft.rfftfreq(tr.stats.npts, tr.stats.delta)
+    Sx = np.abs(rfft(tr.data))
+
+    _freq_central = freq_central(f, Sx)
+    _freq_centroid = freq_centroid(f, Sx)
+    _freq_domi     = freq_domi(f, Sx, 1)
+    _freq_ratio    = freq_ratio(f, Sx, cf.freq_ratio.freqmin, cf.freq_ratio.freqmax)
+    _freq_top_k     = freq_domi(f, Sx, cf.freq_top_k.k)
+
+    # SSAM
+    fl = ssam_bins[0]
+    fu = ssam_bins[2]
+    ssam = downsample_spectrogram(f, Sx, fl, fu)
+
+    # Tonality
+    nyquist = tr.stats.sampling_rate/2
+    fft_sampling_rate = len(f)/nyquist # Samples per Hz
+    _bin_width = int(cf.tonality.bin_width*fft_sampling_rate)
+    _tonality = tonality(Sx, cf.tonality.k, _bin_width)
+
+    with conn:
+        c = conn.cursor()
+        query = """
+        INSERT INTO
+            continuous (
+                channel_id,
+                time,
+                rsem,
+                ssam,
+                dsar,
+                freq_domi,
+                freq_top_k,
+                freq_central,
+                freq_centroid,
+                kurtosis,
+                tonality,
+                freq_ratio
+            )
+        VALUES
+            (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+        """
+        values = (
+            int(channel_id),
+            midtime.datetime,
+            float(_rsem),
+            list(ssam),
+            float(_dsar),
+            float(_freq_domi),
+            float(_freq_top_k),
+            float(_freq_central),
+            float(_freq_centroid),
+            float(_kurtosis),
+            float(_tonality),
+            float(_freq_ratio)
+        )
+        c.execute(query, values)
+
+
+def main():
+    args = parse_args()
+    with open(args.jsonfile) as f:
+        auth = json.load(f)
+
+    conn = psycopg2.connect(**auth['database'])
+
+    cg = query_general_conf(conn)
+    cf = query_feature_conf(conn)
+
+    channels = continuous_extraction_channels(conn)
+
+    client = connect_waveserver(auth['fdsn']['ip'], auth['fdsn']['port'])
+
+    e = UTCDateTime.now()
+    endtime = UTCDateTime(
+        year=e.year, month=e.month, day=e.day, hour=e.hour, minute=e.minute
+    ) + cg.window_length / 2 - 1000
+    starttime = endtime - cg.window_length
+
+    # SSAM bins
+    ssam_bins = get_8ve_bands(
+        cg.sampling_rate/cg.decimation_factor, cf.ssam.fraction,
+        cf.ssam.f_lower, cf.ssam.f_upper
+    )
+
+    while True:
+        st = get_waveforms(client, channels, starttime, endtime)
+        midtime = starttime + (endtime - starttime) / 2
+
+        pre_process(st, int(cg.decimation_factor), cg.freqmin, cg.freqmax,
+                    cg.order, cg.pad)
+        for tr in st:
+            channel_id = channels[
+                (channels.station == tr.stats.station) &
+                (channels.channel == tr.stats.channel)
+            ].iloc[0].id
+            process(tr, conn, cg, cf, ssam_bins, midtime, channel_id)
+
+        starttime += cg.step
+        endtime   += cg.step
+
+        now = UTCDateTime.now()
+
+        if now > endtime:
+            continue
+        else:
+            time.sleep(endtime - now)
+
+
+if __name__ == '__main__' :
+    logging.basicConfig(level=logging.INFO)
+    main()

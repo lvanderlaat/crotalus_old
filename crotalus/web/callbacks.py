@@ -23,8 +23,7 @@ def set_stations_options(selected_volcano):
     Output('station-dropdown', 'value'),
     Input('station-dropdown', 'options'))
 def set_stations_value(available_options):
-    # return available_options[0]['value']
-    return 2
+    return available_options[0]['value']
 
 
 @app.callback(
@@ -38,8 +37,7 @@ def set_channel_options(selected_station):
     Output('channel-dropdown', 'value'),
     Input('channel-dropdown', 'options'))
 def set_channel_value(available_options):
-    # return available_options[0]['value']
-    return 7
+    return available_options[0]['value']
 
 
 @app.callback(

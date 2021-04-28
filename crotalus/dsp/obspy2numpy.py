@@ -54,10 +54,15 @@ def st2windowed_data(st, window_length, overlap):
     endtimes = [tr.stats.endtime for tr in st]
     st.trim(starttime=max(starttimes), endtime=min(endtimes))
 
-    utcdatetime = get_window_times(st[0].stats.starttime, st[0].stats.endtime,
-                                   window_length=window_length,
-                                   step=window_length - window_length*overlap,
-                                   offset=0, include_partial_windows=False)
+    utcdatetime = get_window_times(
+        st[0].stats.starttime,
+        st[0].stats.endtime,
+        window_length=window_length,
+        step=window_length - window_length*overlap,
+        offset=0,
+        include_partial_windows=False
+    )
+
     utcdatetime = (np.array(utcdatetime)[:, :1]+window_length/2).flatten()
 
     # Stream -> array of shape: (n_traces, npts)

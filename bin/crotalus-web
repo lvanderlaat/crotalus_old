@@ -16,7 +16,7 @@ args = parser.parse_args()
 with open(args.jsonfile) as f:
     db_auth = json.load(f)
 
-builtins.conn = psycopg2.connect(**db_auth)
+builtins.conn = psycopg2.connect(**db_auth['database'])
 
 # Local files
 from crotalus.web.apps import app
@@ -26,6 +26,7 @@ import crotalus.web.callbacks
 
 app.layout = layout
 
+
 if __name__ == '__main__':
-    app.run_server(debug=True)
-    # app.run_server(host='0.0.0.0', debug=False, port='8050')
+    # app.run_server(debug=True)
+    app.run_server(host='0.0.0.0', debug=False, port='8050')

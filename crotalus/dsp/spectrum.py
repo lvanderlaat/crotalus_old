@@ -1,4 +1,11 @@
+# Python Standard Library
+
+# Other dependencies
 import numpy as np
+from scipy.fft import rfft
+
+# Local files
+
 
 
 def get_8ve_bands(sampling_rate, fraction, f_lower, f_upper):
@@ -35,65 +42,83 @@ def get_8ve_bands(sampling_rate, fraction, f_lower, f_upper):
     return fl, fc, fu
 
 
-def mean_freq(f, Sx):
-    """ Mean frequency
+def spectrogram(tr, window_length, overlap, pad,):
+    """Seismic Spectral Amplitude Measurement (SSAM)
 
-    Carniel & Di Cecca (1999)
+    Seismic Spectral Amplitude Measurement (SSAM)
+
+    For multiple resamplings a list for `fl` and `fu` can be passed, a list of
+    SSAM matrices will be returned. This is useful to get both a linear SSAM
+    and a octave SSAM in the frequency range.
+
+    Parameters
+    ----------
+    tr : obspy.trace
+        Raw seimic trace
+    window_length : float
+        Window length in seconds
+    overlap : float
+        Overlap fraction between windows (0-1)
+    pad : float
+        Taper pad fraction (0-1)
+
+    Returns
+    -------
+    utcdatetimes : array of obspy.UTCDateTime objects
+        Time for each data point
+    f : np.ndarray
+        Frequency (1d) array
+    Sx : tuple of np.ndarray or np.ndarray
+        SSAM matrix or matrices
+
+    """
+    utcdatetimes, data_windowed = st2windowed_data(tr, window_length, overlap)
+    data_windowed = data_windowed[0]
+
+    data_windowed *= tukey(data_windowed.shape[1], alpha=pad) # taper
+
+    Sxx = np.abs(rfft(data_windowed))
+
+    f = np.fft.rfftfreq(data_windowed.shape[1], tr.stats.delta)
+    return utcdatetimes, f, Sxx
+
+
+def downsample_spectrogram(f, Sx, fl, fu):
+    """ Resample spectrogram
+
+    Downsample spectrogram to SSAM. Uses the mean in each frequency bin
+
+    TODO usar skimage.util.shape.view_as_windows
 
     Parameters
     ----------
     f : np.ndarray
-        Frequency (1d) array
+        Frequency array of the spectrum
     Sx : np.ndarray
-        One dimension Spectrum (f,) or two dimension spectra (window, f)
+        Spectrum or spectrogram array
+    fl : np.ndarray
+        Target lower frequency array
+    fu : np.ndarray
+        Target upper frequency array
 
     Returns
     -------
-    freq_mean : float or np.ndarray
-        Mean frequency
+    ssam : np.ndarray
+        Downsampled spectrogram amplitude array
+
     """
+
     if Sx.ndim == 1:
-        Sx   = Sx/Sx.max()
-        Stot = Sx.mean()
-        Sx   = Sx/Stot
-        freq_mean = (f*Sx).mean()
+        ssam = np.empty(len(fl))
+        for i in range(len(fl)):
+            freq_min_idx = (np.abs(f - fl[i])).argmin()
+            freq_max_idx = (np.abs(f - fu[i])).argmin()
+            ssam[i] = Sx[freq_min_idx:freq_max_idx+1].mean()
     elif Sx.ndim == 2:
-        Sx   = Sx/Sx.max(axis=1)[:, None]
-        Stot = Sx.mean(axis=1)
-        Sx   = Sx/Stot[:, None]
-        freq_mean = (f*Sx).mean(axis=1)
-    return freq_mean
-
-
-def dom_freq(f, Sx, k):
-    """ Mean frequency of the top-k elements
-
-    Girona et al. (2019)
-    Takes the average frequency of the k top peaks of the spectrum
-
-    Parameters
-    ----------
-    f : np.ndarray
-        Frequency (1d) array
-    Sx : np.ndarray
-        One dimension Spectrum (f,) or two dimension spectra (window, f)
-    k : int
-        Number of top amplitude maxima
-
-    Returns
-    -------
-    freq_mean : float
-        Mean frequency
-    """
-    if Sx.ndim == 1:
-        index     = np.argpartition(-Sx, k)
-        index_top = index[:k]
-        freq_top  = f[index_top]
-        freq_mean = freq_top.mean()
-    elif Sx.ndim == 2:
-        f           = np.stack([f for _ in range(Sx.shape[0])])
-        indices     = np.argpartition(-Sx, k, axis=1)
-        indices_top = indices[:, :k]
-        freq_top    = np.take_along_axis(f, indices_top, axis=1)
-        freq_mean   = freq_top.mean(axis=1)
-    return freq_mean
+        Sxx = Sx
+        ssam = np.empty((Sxx.shape[0], len(fl)))
+        for i in range(len(fl)):
+            freq_min_idx = (np.abs(f - fl[i])).argmin()
+            freq_max_idx = (np.abs(f - fu[i])).argmin()
+            ssam[:, i] = Sxx[:, freq_min_idx:freq_max_idx].mean(axis=1)
+    return ssam
