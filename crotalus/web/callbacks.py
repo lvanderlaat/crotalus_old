@@ -7,7 +7,7 @@ from dash.exceptions import PreventUpdate
 # Local files
 from crotalus.web.apps import app
 from crotalus.web.queries import (
-    get_stations_options, get_channel_options, query, get_client, get_network
+    get_channel_options, query, get_client, get_network
 )
 from crotalus.web.plots import plot
 
@@ -20,15 +20,8 @@ def set_stations_options(selected_volcano):
 
 
 @app.callback(
-    Output('station-dropdown', 'value'),
-    Input('station-dropdown', 'options'))
-def set_stations_value(available_options):
-    return available_options[0]['value']
-
-
-@app.callback(
     Output('channel-dropdown', 'options'),
-    Input('station-dropdown', 'value'))
+    Input('volcano-dropdown', 'value'))
 def set_channel_options(selected_station):
     return get_channel_options(selected_station)
 

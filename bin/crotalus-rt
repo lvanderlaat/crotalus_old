@@ -12,22 +12,19 @@ import numpy as np
 from obspy import UTCDateTime, Stream
 from obspy.clients.fdsn import Client
 import psycopg2
-from scipy.fft import rfft
 
 # Local files
 from crotalus.config.database import (
-    continuous_extraction_channels, query_general_conf, query_feature_conf
+    continuous_extraction_channels, query_feature_conf, query_general_conf
 )
-from crotalus.dsp.pre_process import pre_process
 from crotalus.dsp.features import (
-    rsem, kurtosis, dsar,
-    freq_central, freq_centroid, freq_domi, freq_ratio,
+    dsar, freq_central, freq_centroid, freq_domi, freq_ratio, kurtosis, rsem,
     tonality
 )
-from crotalus.dsp.spectrum import get_8ve_bands, downsample_spectrogram
-
-
-NANO = 1e9
+from crotalus.dsp.pre_process import pre_process
+from crotalus.dsp.spectrum import (
+    downsample_spectrogram, get_8ve_bands, spectrum
+)
 
 
 def parse_args():
@@ -41,10 +38,10 @@ def connect_waveserver(ip, port):
     try:
         logging.info(f'Connecting to {url}...')
         client = Client(url)
-        logging.info('Succesfully connected to FDSN client.')
+        logging.info('Succesfully connected to FDSN client.\n')
         return client
     except Exception as e:
-        print(e)
+        logging.info(e)
 
 
 def get_waveforms(client, channels, starttime, endtime):
@@ -72,45 +69,32 @@ def get_waveforms(client, channels, starttime, endtime):
 
     for thread in threads:
         thread.join()
-
-    st.merge()
-    st.remove_response()
-    for tr in st:
-        tr.data *= NANO
     return st
 
 
-def process(tr, conn, cg, cf, ssam_bins, midtime, channel_id):
+def process(tr, conn, cg, cf, midtime, channel_id):
     # Time series features
     _rsem     = rsem(tr.data)
     _kurtosis = kurtosis(tr.data)
-
-    # DSAR
-    _dsar = dsar(
-        tr, cf.dsar.freqmin, cf.dsar.freqmax, cf.dsar.order,
-        tr.stats.npts/tr.stats.sampling_rate, 0
-    )[1][0]
+    _dsar     = dsar(tr, cf.dsar.freqmin, cf.dsar.freqmax, cf.dsar.order,
+                     tr.stats.npts/tr.stats.sampling_rate, 0)[1][0]
 
     # Spectral features
-    f = np.fft.rfftfreq(tr.stats.npts, tr.stats.delta)
-    Sx = np.abs(rfft(tr.data))
+    f, Sx = spectrum(tr, cg.pad)
 
-    _freq_central = freq_central(f, Sx)
+    _freq_central  = freq_central(f, Sx)
     _freq_centroid = freq_centroid(f, Sx)
     _freq_domi     = freq_domi(f, Sx, 1)
     _freq_ratio    = freq_ratio(f, Sx, cf.freq_ratio.freqmin, cf.freq_ratio.freqmax)
-    _freq_top_k     = freq_domi(f, Sx, cf.freq_top_k.k)
+    _freq_top_k    = freq_domi(f, Sx, cf.freq_top_k.k)
 
-    # SSAM
-    fl = ssam_bins[0]
-    fu = ssam_bins[2]
-    ssam = downsample_spectrogram(f, Sx, fl, fu)
+    fc, _ssam      = downsample_spectrogram(
+        f, Sx, cf.ssam.f_lower, cf.ssam.f_upper, method=cf.ssam.method,
+        fraction=cf.ssam.fraction, sampling_rate=tr.stats.sampling_rate
+    )
 
-    # Tonality
-    nyquist = tr.stats.sampling_rate/2
-    fft_sampling_rate = len(f)/nyquist # Samples per Hz
-    _bin_width = int(cf.tonality.bin_width*fft_sampling_rate)
-    _tonality = tonality(Sx, cf.tonality.k, _bin_width)
+    _tonality      = tonality(f, Sx, cf.tonality.k, cf.tonality.bin_width,
+                              tr.stats.sampling_rate)
 
     with conn:
         c = conn.cursor()
@@ -137,7 +121,7 @@ def process(tr, conn, cg, cf, ssam_bins, midtime, channel_id):
             int(channel_id),
             midtime.datetime,
             float(_rsem),
-            list(ssam),
+            list(_ssam),
             float(_dsar),
             float(_freq_domi),
             float(_freq_top_k),
@@ -167,27 +151,33 @@ def main():
     e = UTCDateTime.now()
     endtime = UTCDateTime(
         year=e.year, month=e.month, day=e.day, hour=e.hour, minute=e.minute
-    ) + cg.window_length / 2 - 1000
+    ) + cg.window_length / 2 # - 1000
     starttime = endtime - cg.window_length
 
-    # SSAM bins
-    ssam_bins = get_8ve_bands(
-        cg.sampling_rate/cg.decimation_factor, cf.ssam.fraction,
-        cf.ssam.f_lower, cf.ssam.f_upper
-    )
-
     while True:
+        _starttime = str(starttime).split('.')[0]
+        _endtime   = str(endtime).split('.')[0]
+        logging.info(f'Downloading waves for {_starttime}-{_endtime}...')
+
         st = get_waveforms(client, channels, starttime, endtime)
         midtime = starttime + (endtime - starttime) / 2
 
-        pre_process(st, int(cg.decimation_factor), cg.freqmin, cg.freqmax,
-                    cg.order, cg.pad)
+        logging.info('Pre-processing waves...')
+        pre_process(
+            st, int(cg.decimation_factor), cg.freqmin, cg.freqmax, cg.order,
+            cg.multiple
+        )
+
+        logging.info('Processing waves...')
         for tr in st:
             channel_id = channels[
                 (channels.station == tr.stats.station) &
                 (channels.channel == tr.stats.channel)
             ].iloc[0].id
-            process(tr, conn, cg, cf, ssam_bins, midtime, channel_id)
+
+            process(tr, conn, cg, cf, midtime, channel_id)
+
+        logging.info('Done.\n')
 
         starttime += cg.step
         endtime   += cg.step
@@ -197,9 +187,17 @@ def main():
         if now > endtime:
             continue
         else:
-            time.sleep(endtime - now)
+            waiting_time = endtime - now
+            logging.info(
+                f'Buffering next window, waiting time: {waiting_time:.2f} s...'
+            )
+            time.sleep(waiting_time)
 
 
 if __name__ == '__main__' :
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s %(levelname)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
     main()

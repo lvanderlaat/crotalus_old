@@ -186,14 +186,21 @@ def freq_ratio(f, Sx, freqmin, freqmax):
     fu_min_idx = (np.abs(f - freqmin[1])).argmin()
     fu_max_idx = (np.abs(f - freqmax[1])).argmin()
 
-    _freq_ratio = np.log(
-        Sx[fu_min_idx: fu_max_idx].sum() / Sx[fl_min_idx: fl_max_idx].sum()
-    )
+    hf_rms = np.sqrt(np.mean(Sx[fu_min_idx: fu_max_idx]**2))
+    lf_rms = np.sqrt(np.mean(Sx[fl_min_idx: fl_max_idx]**2))
+
+    _freq_ratio = np.log(hf_rms/lf_rms)
     return _freq_ratio
 
 
 @jit(nopython=True)
-def tonality(Sx, k, _bin_width):
+def tonality(f, Sx, k, bin_width, sampling_rate):
+
+    # Determine the bin width in samples
+    nyquist = sampling_rate/2
+    fft_sampling_rate = len(f)/nyquist # Samples per Hz
+    _bin_width = int(bin_width*fft_sampling_rate)
+
     index = np.argsort(-Sx)
     t, effective = 0, []
     for i, idx in enumerate(index):

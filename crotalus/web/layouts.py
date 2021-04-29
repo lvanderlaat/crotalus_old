@@ -22,10 +22,6 @@ layout = html.Div(
             value=get_volcanoes_options()[0]['value']
         ),
 
-        html.Label('Station'),
-
-        dcc.Dropdown(id='station-dropdown'),
-
         html.Label('Channel'),
 
         dcc.Dropdown(id='channel-dropdown'),

@@ -3,9 +3,39 @@
 # Other dependencies
 import numpy as np
 from scipy.fft import rfft
+from scipy.signal.windows import tukey
 
 # Local files
 
+
+
+def get_linear_bands(f_lower, f_upper, f_delta):
+    """ Get linear frequency spectrum bands
+
+    To downsample spectrum
+
+    Parameters
+    ----------
+    f_lower : float
+        Lower frequency
+    f_upper : float
+        Upper frequency
+    f_delta : float
+        Frequency bin width
+
+    Returns
+    -------
+    fl : np.ndarray
+        Lower frequency array
+    fc : np.ndarray
+        Center frequency array
+    fu : np.ndarray
+        Upper frequency array
+    """
+    fl = np.arange(f_lower, f_upper, f_delta)
+    fu = np.arange(f_lower+f_delta, f_upper+f_delta, f_delta)
+    fc = (fl + fu)/2
+    return fl, fc, fu
 
 
 def get_8ve_bands(sampling_rate, fraction, f_lower, f_upper):
@@ -40,6 +70,13 @@ def get_8ve_bands(sampling_rate, fraction, f_lower, f_upper):
     fl = fc*2**(-fraction/2)
     fu = fc*2**(+fraction/2)
     return fl, fc, fu
+
+
+def spectrum(tr, pad):
+    f  = np.fft.rfftfreq(tr.stats.npts, tr.stats.delta)
+    Sx = np.abs(rfft(tr.data))
+    Sx *= tukey(Sx.shape[0], alpha=pad) # taper
+    return f, Sx
 
 
 def spectrogram(tr, window_length, overlap, pad,):
@@ -83,12 +120,13 @@ def spectrogram(tr, window_length, overlap, pad,):
     return utcdatetimes, f, Sxx
 
 
-def downsample_spectrogram(f, Sx, fl, fu):
+def downsample_spectrogram(
+    f, Sx, f_lower, f_upper, method='octave', f_delta=0.25, fraction=1/12,
+    sampling_rate=None
+):
     """ Resample spectrogram
 
     Downsample spectrogram to SSAM. Uses the mean in each frequency bin
-
-    TODO usar skimage.util.shape.view_as_windows
 
     Parameters
     ----------
@@ -96,10 +134,18 @@ def downsample_spectrogram(f, Sx, fl, fu):
         Frequency array of the spectrum
     Sx : np.ndarray
         Spectrum or spectrogram array
-    fl : np.ndarray
-        Target lower frequency array
-    fu : np.ndarray
-        Target upper frequency array
+    f_lower : float
+        Lower frequency
+    f_upper : float
+        Upper frequency
+    method : str
+        'octave' or 'linear'
+    f_delta : float
+        Frequency bin width, to use with method='linear'
+    fraction : float
+        Octave fraction, to use with method='octave'
+    sampling_rate : float
+        To use with method='octave'
 
     Returns
     -------
@@ -107,6 +153,10 @@ def downsample_spectrogram(f, Sx, fl, fu):
         Downsampled spectrogram amplitude array
 
     """
+    if method == 'octave':
+        fl, fc, fu = get_8ve_bands(sampling_rate, fraction, f_lower, f_upper)
+    elif method == 'linear':
+        fl, fc, fu = get_linear_bands(f_lower, f_upper, f_delta)
 
     if Sx.ndim == 1:
         ssam = np.empty(len(fl))
@@ -121,4 +171,4 @@ def downsample_spectrogram(f, Sx, fl, fu):
             freq_min_idx = (np.abs(f - fl[i])).argmin()
             freq_max_idx = (np.abs(f - fu[i])).argmin()
             ssam[:, i] = Sxx[:, freq_min_idx:freq_max_idx].mean(axis=1)
-    return ssam
+    return fc, ssam

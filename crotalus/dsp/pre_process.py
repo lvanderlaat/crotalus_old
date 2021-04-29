@@ -8,18 +8,24 @@ from scipy.signal.windows import tukey
 from crotalus.dsp.filter import butter_bandpass_filter
 
 
-def _pre_process(tr, decimation_factor, freqmin, freqmax, order, pad):
+def _pre_process(tr, decimation_factor, freqmin, freqmax, order, multiple):
     tr.detrend()
-    tr.decimate(decimation_factor)
+    if decimation_factor != 1:
+        tr.decimate(decimation_factor)
+    tr.data *= multiple
     butter_bandpass_filter(tr, freqmin, freqmax, order)
-    # tr.data *= tukey(tr.stats.npts, alpha=pad)
 
 
-def pre_process(st, decimation_factor, freqmin, freqmax, order, pad):
+def pre_process(st, decimation_factor, freqmin, freqmax, order, multiple):
+    st.merge()
+    st.remove_response()
+
     if isinstance(st, Trace):
-        _pre_process(st, decimation_factor, freqmin, freqmax, order, pad)
+        _pre_process(st, decimation_factor, freqmin, freqmax, order, multiple)
     elif isinstance(st, Stream):
         for tr in st:
-            _pre_process(tr, decimation_factor, freqmin, freqmax, order, pad)
+            _pre_process(
+                tr, decimation_factor, freqmin, freqmax, order, multiple
+            )
 
 

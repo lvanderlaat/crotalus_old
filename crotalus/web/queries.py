@@ -13,19 +13,27 @@ def get_volcanoes_options():
     return [dict(label=row['volcano'], value=row.id) for i, row in df.iterrows()]
 
 
-def get_stations_options(volcano_id):
+def get_channel_options(volcano_id):
     df = pd.read_sql_query(
-        f'SELECT * FROM station WHERE volcano_id = {volcano_id};', conn
+        f"""
+        SELECT
+             channel.id, channel.station, channel.channel
+        FROM
+            channel
+        INNER JOIN
+            station
+        ON
+            channel.station_id = station.id
+        WHERE
+            channel.continuous_extraction AND
+            station.volcano_id = {volcano_id};
+        """,
+        conn
     )
-    return [dict(label=row.station, value=row.id) for i, row in df.iterrows()]
-
-
-def get_channel_options(station_id):
-    df = pd.read_sql_query(
-        f'SELECT * FROM channel WHERE station_id = {station_id}; ', conn
-    )
-    return [dict(label=row.channel, value=row.id) for i, row in df.iterrows()]
-
+    return [
+        dict(label=f'{row.station}-{row.channel}', value=row.id)
+        for i, row in df.iterrows()
+    ]
 
 def get_measurments_options():
     df = pd.read_sql_query(
