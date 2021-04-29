@@ -18,6 +18,7 @@ setup(
     install_requires = [
     ],
     scripts          = [
+        'bin/crotalus-rt'
         'bin/crotalus-web'
     ],
     zip_safe         = False
