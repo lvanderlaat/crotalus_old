@@ -2,14 +2,13 @@
 
 ## Conda environment & packages
 
-    $ conda create -n env
-    $ conda activate env
+    $ conda create -n crotalus
+    $ conda activate crotalus
 
 TODO: install requirements
-
-    (env) $ 
-    (env) $ cd crotalus
-    (env) $ pip install -e .
+    $ git clone 
+    (crotalus) $ cd crotalus
+    (crotalus) $ pip install -e .
 
 # Web interface
 
